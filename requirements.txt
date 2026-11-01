@@ -1,0 +1,16 @@
+# regeneration pipeline (scripts/)
+fonttools>=4.50
+skia-pathops>=0.8
+shapely>=2.0
+numpy>=1.26
+Pillow>=10.0
+
+# building from sources/ (Google Fonts tooling)
+gftools>=0.9
+fontmake>=3.8
+
+# quality checks
+fontbakery>=0.12
+
+# SolidWorks verification scripts (Windows only)
+pywin32>=306; sys_platform == "win32"

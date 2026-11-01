@@ -1,0 +1,16 @@
+# gftools builder configuration: `gftools builder sources/config.yaml`
+# The UFO sources are exported from the generated fonts (scripts/export_ufo.py); edit the
+# pipeline in scripts/ and re-export rather than editing the UFOs by hand.
+sources:
+  - ZenKakuStencil-Regular.ufo
+  - ZenKakuStencil-Bold.ufo
+familyName: Zen Kaku Stencil
+buildVariable: false
+buildStatic: true
+buildOTF: false
+buildTTF: true
+outputDir: ../fonts
+ttDir: ../fonts/ttf
+autohintTTF: false
+flattenComponents: true
+decomposeTransformedComponents: true

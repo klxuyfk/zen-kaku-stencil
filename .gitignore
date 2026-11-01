@@ -1,0 +1,22 @@
+# downloaded stroke-order data (scripts/fetch_kanjivg.py)
+kanjivg_dl/
+
+# regeneration output
+out/
+installed/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# fontbakery / build artefacts
+fontbakery-report.*
+*.~*
+
+# UFO sources are exported from fonts/ttf by scripts/export_ufo.py (118 MB, 15k files); not committed for now
+sources/*.ufo
+
+# parent font downloaded by scripts/fetch_inputs.py
+base_font/
