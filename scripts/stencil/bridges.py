@@ -257,7 +257,8 @@ def rect_path(poly):
 def apply_cuts(path, chosen):
     cut = pathops.Path(path)
     for c in chosen:
-        cut = pathops.op(cut, rect_path(c.rect), pathops.PathOp.DIFFERENCE, fix_winding=True, keep_starting_points=False)
+        g = getattr(c, 'gap_path', None)
+        cut = pathops.op(cut, g if g is not None else rect_path(c.rect), pathops.PathOp.DIFFERENCE, fix_winding=True, keep_starting_points=False)
     cut.simplify(fix_winding=True, keep_starting_points=False)
     return cut
 

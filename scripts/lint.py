@@ -2,14 +2,15 @@
 (remaining holes, invalid/self-touching contours, kissing contours, micro segments, tiny contours)."""
 import sys, os, pickle, math, multiprocessing as mp
 sys.path.insert(0, os.path.dirname(__file__))
-from stencil.outline import segs_to_path, finalize
+import release_config; release_config.apply()
+from stencil.outline import segs_to_path, finalize, finalize_record
 from stencil.core import path_polys, signed_area
 
 def lint_one(item):
-    g, segs = item
+    g, rec = item
     from shapely.geometry import Polygon
     try:
-        p, rep = finalize(segs_to_path(segs))
+        p, rep = finalize_record(rec)
         polys = path_polys(p, 0.5)
         shp = []
         for pts, h in polys:
@@ -51,7 +52,7 @@ def lint_one(item):
 if __name__ == '__main__':
     sys.stdout.reconfigure(encoding='utf-8')
     res = pickle.load(open(sys.argv[1] if len(sys.argv) > 1 else 'out/results.pkl', 'rb'))
-    items = [(g, r['segs']) for g, r in res.items() if 'segs' in r]
+    items = [(g, {k: r.get(k) for k in ('segs', 'orig_segs', 'engine', 'chosen')}) for g, r in res.items() if 'segs' in r]
     with mp.Pool(max(1, (os.cpu_count() or 2) - 1)) as pool:
         reps = pool.map(lint_one, items, chunksize=32)
     bad = {'holes': [], 'invalid': [], 'kiss': [], 'micro': [], 'tiny': [], 'spikes': [], 'error': []}
@@ -74,5 +75,6 @@ if __name__ == '__main__':
         return ' '.join(out)
     for k, v in bad.items():
         print('%-8s %5d  %s' % (k, len(v), show(v)))
-    os.makedirs(os.path.dirname(os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else 'out/lint.pkl')) , exist_ok=True)
-    pickle.dump(reps, open(sys.argv[2] if len(sys.argv) > 2 else 'out/lint.pkl', 'wb'))
+    out_path = sys.argv[2] if len(sys.argv) > 2 else 'out/lint.pkl'
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    pickle.dump(reps, open(out_path, 'wb'))

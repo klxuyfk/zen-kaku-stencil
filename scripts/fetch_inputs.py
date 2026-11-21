@@ -2,7 +2,7 @@
 
     python scripts/fetch_inputs.py
 
-- Zen Kaku Gothic New Regular / Bold (SIL OFL 1.1) from the googlefonts/zen-kakugothic repository
+- Zen Kaku Gothic New Regular (SIL OFL 1.1) from the googlefonts/zen-kakugothic repository
   -> base_font/
 - KanjiVG (Copyright Ulrich Apel, CC BY-SA 3.0) from the KanjiVG/kanjivg repository
   -> kanjivg_dl/x/kanji/   (read by scripts/stencil/kanjivg.py while placing bridges; not embedded in the fonts)
@@ -11,7 +11,7 @@ import io, os, zipfile, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE = 'https://github.com/googlefonts/zen-kakugothic/raw/main/fonts/ttf/'
-FONTS = ['ZenKakuGothicNew-Regular.ttf', 'ZenKakuGothicNew-Bold.ttf', 'OFL.txt']
+FONTS = ['ZenKakuGothicNew-Regular.ttf', 'OFL.txt']
 KVG = 'https://github.com/KanjiVG/kanjivg/archive/refs/heads/master.zip'
 
 def get(url):

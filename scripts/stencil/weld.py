@@ -115,18 +115,32 @@ def _holes(path):
     regions, ext = material_regions(_ink(path))
     return len(regions) - 1
 
-def desliver(path, h=3.5, max_area=150.0, max_thick=2.5):
+def _is_tip(g, inradius):
+    """The residue of an opening/closing at an acute corner is a small three-sided piece that still holds
+    a circle of about a third of the radius used; a hairline strip does not. Corner tips are part of the
+    shape (the corner of a cut end, an acute corner of the design) and are left alone."""
+    return not g.buffer(-inradius).is_empty
+
+
+def desliver(path, h=3.5, max_area=150.0, max_thick=2.5, rects=None, reach=4.0):
     """Post-cut cleanup: remove hairline ink slivers; fill hairline material notches only when the
-    fill does not re-close a bridge (hole count unchanged). Returns (path, n_fixes)."""
+    fill does not re-close a bridge (hole count unchanged). Returns (path, n_fixes).
+    With `rects` (the cut regions) only pieces within `reach` of a cut are touched: the tip of every
+    acute corner of the design is a 'hairline' by this measure too, and rounding it (radius h) leaves
+    two short edges on a corner that had none."""
     ink = _ink(path)
     cur = path; n = 0
+    near = (lambda g: any(g.distance(rc) < reach for rc in rects)) if rects is not None else (lambda g: True)
     opened = ink.buffer(-h).buffer(h)
     for g in _pieces(ink.difference(opened)):
-        if g.area <= 8.0 or g.area > max_area or 2*g.area/max(g.length, 1e-6) >= max_thick:
+        if g.area <= 8.0 or g.area > max_area or 2*g.area/max(g.length, 1e-6) >= max_thick or not near(g):
+            continue
+        if rects is not None and _is_tip(g, 1.1):
             continue
         cur = pathops.op(cur, _poly_to_path(g.buffer(0.4, 1)), pathops.PathOp.DIFFERENCE, fix_winding=True, keep_starting_points=False); n += 1
     closed = ink.buffer(h).buffer(-h)
-    fills = [g for g in _pieces(closed.difference(ink)) if 8.0 < g.area <= max_area and 2*g.area/max(g.length, 1e-6) < max_thick]
+    fills = [g for g in _pieces(closed.difference(ink)) if 8.0 < g.area <= max_area and 2*g.area/max(g.length, 1e-6) < max_thick and near(g)
+             and not (rects is not None and _is_tip(g, 1.1))]
     if fills:
         before = _holes(cur)
         for g in fills:
@@ -137,7 +151,7 @@ def desliver(path, h=3.5, max_area=150.0, max_thick=2.5):
         cur.simplify(fix_winding=True, keep_starting_points=False)
     return cur, n
 
-def trim_remnants(path, rects, r=3.0, min_area=20.0, max_area=200.0, max_thick=2.6, reach=1.0):
+def trim_remnants(path, rects, r=3.0, min_area=20.0, max_area=200.0, max_thick=2.6, reach=1.0, keep_tips=False):
     """Post-cut cleanup: a bridge whose side runs almost parallel to a stroke edge, or whose end leaves
     an acute corner, can leave a hair-thin strip of ink (thinner than 2*r) beside the bridge. Such a
     strip would be a fragile sliver on a real stencil and trips SolidWorks' contour check, so it is
@@ -152,6 +166,8 @@ def trim_remnants(path, rects, r=3.0, min_area=20.0, max_area=200.0, max_thick=2
         if g.area < min_area or g.area > max_area or 2*g.area/max(g.length, 1e-6) >= max_thick:
             continue
         if not any(g.distance(rc) < reach for rc in rects):
+            continue
+        if keep_tips and _is_tip(g, 1.3):
             continue
         cur = pathops.op(cur, _poly_to_path(g.buffer(0.4, 1)), pathops.PathOp.DIFFERENCE, fix_winding=True, keep_starting_points=False); n += 1
     if n:
@@ -170,18 +186,35 @@ def _patches_for(ink, pts, r):
         patches.append(hull.buffer(1.5, 1))
     return patches
 
-def weld_guarded(path, min_gap=MIN_GAP, r=WELD_R, max_iter=6):
+def weld_guarded(path, min_gap=MIN_GAP, r=WELD_R, max_iter=6, rects=None, reach=14.0):
     """Post-cut welding: like weld(), but a patch is kept only if it does not change the number of
-    material regions (it must never re-close a bridge). Returns (path, n_welds)."""
+    material regions (it must never re-close a bridge). Returns (path, n_welds).
+    With `rects` (the cut regions) only contacts within `reach` of a cut are welded: the uncut glyph has
+    been welded already, and a borderline acute corner of the design far from any cut must not be
+    filled just because the outline was re-sampled."""
+    from shapely.geometry import Point as _P
     cur = path; n = 0
     before = _holes(cur)
     for _ in range(max_iter):
         pts = problems(cur, min_gap)
+        if rects is not None:
+            pts = [q for q in pts if any(rc.distance(_P(q[0], q[1])) < reach for rc in rects)]
         if not pts:
             break
         ink = _ink(cur)
         applied = 0
+        cutout = unary_union(rects) if rects else None
         for patch in _patches_for(ink, pts, r):
+            if cutout is not None:
+                # never fill back into a cut, and leave the face a cut has just made exactly as it is
+                # (the 1.5-unit margin of the patch would bulge it)
+                patch = patch.difference(cutout.buffer(0.3))
+                if patch.is_empty:
+                    continue
+                if patch.geom_type != 'Polygon':
+                    patch = max(_pieces(patch), key=lambda g: g.area)
+                if patch.area < 4.0:
+                    continue
             cand = pathops.op(cur, _poly_to_path(patch), pathops.PathOp.UNION, fix_winding=True, keep_starting_points=False)
             if _holes(cand) == before:
                 cur = cand; applied += 1
