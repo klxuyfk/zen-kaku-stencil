@@ -1,6 +1,11 @@
-"""Batch-stencil every simple glyph of the base font with multiprocessing. Writes out/results.pkl."""
+"""Batch-stencil every simple glyph of the base font with multiprocessing. Writes out/results.pkl.
+STENCIL_ENGINE=corners (default): the revised cuts (stencil.junction.stencil_glyph2, docs/09_revision_policy.md)
+with the options in STENCIL_OPTS (default: the release options in release_config.py); a glyph the revised cuts
+cannot open completely falls back to the first release's cuts (rec['engine'] says which was used).
+STENCIL_ENGINE=bridges: the first release's cuts (stencil.bridges.stencil_glyph, v1.000)."""
 import sys, os, time, pickle, traceback, multiprocessing as mp
 sys.path.insert(0, os.path.dirname(__file__))
+import release_config; release_config.apply()
 from stencil.core import Font
 from stencil import kanjivg
 from stencil.bridges import stencil_glyph
@@ -12,6 +17,7 @@ W = float(os.environ.get('STENCIL_W', 60.0))
 CLEAR = float(os.environ.get('STENCIL_CLEAR', 10.0))        # side clearance of the clean-bar test
 MIN_GAP = float(os.environ.get('STENCIL_MIN_GAP', 1.5))    # first-pass spacing between bridges, x W
 FILL_MIN = float(os.environ.get('STENCIL_FILL_MIN', 0.0))  # fill counters narrower than this (0 = off)
+ENGINE = os.environ.get('STENCIL_ENGINE', 'corners')
 _font = None; _rev = None
 
 def init():
@@ -64,16 +70,35 @@ def work(gname):
             if kv:
                 strokes = kanjivg.align(kv, p.bounds, STROKE_W)
         ideograph = cp is not None and (0x2E80 <= cp <= 0x2FDF or 0x3400 <= cp <= 0x9FFF or 0xF900 <= cp <= 0xFAFF)
-        res = stencil_glyph(p, strokes, STROKE_W, W, prefer_later=not is_cjk(cp), lmax_factor=(1.7 if ideograph else 2.1), clear=CLEAR, min_gap=MIN_GAP, fill_min=FILL_MIN)
-        if res.unconnected or res.n_holes_after:
-            # last resort for scaled-down multi-character glyphs (e.g. square kana ligatures): thinner strokes
-            res2 = stencil_glyph(p, strokes, STROKE_W*0.5, W*0.5, prefer_later=not is_cjk(cp), lmax_factor=2.1, clear=CLEAR, min_gap=MIN_GAP, fill_min=FILL_MIN)
-            if not (res2.unconnected or res2.n_holes_after):
-                res = res2; rec['small'] = True
+        res = None; rec['engine'] = 'bridges'
+        if ENGINE == 'corners':
+            from stencil import junction as _junction
+            import copy
+            try:
+                res = _junction.stencil_glyph2(p, copy.deepcopy(strokes), STROKE_W, W, prefer_later=not is_cjk(cp), lmax_factor=(1.7 if ideograph else 2.1), clear=CLEAR, min_gap=MIN_GAP, fill_min=FILL_MIN)
+                rec['filled'] = _junction.LAST_FILLED
+                if res.unconnected or res.n_holes_after:
+                    res2 = _junction.stencil_glyph2(p, copy.deepcopy(strokes), STROKE_W*0.5, W*0.5, prefer_later=not is_cjk(cp), lmax_factor=2.1, clear=CLEAR, min_gap=MIN_GAP, fill_min=FILL_MIN)
+                    if not (res2.unconnected or res2.n_holes_after):
+                        res = res2; rec['small'] = True; rec['filled'] = _junction.LAST_FILLED
+                if res.unconnected or res.n_holes_after:
+                    rec['corners_unresolved'] = True; res = None
+                else:
+                    rec['engine'] = 'corners'
+            except Exception:
+                rec['corners_error'] = traceback.format_exc(); res = None
+        if res is None:
+            res = stencil_glyph(p, strokes, STROKE_W, W, prefer_later=not is_cjk(cp), lmax_factor=(1.7 if ideograph else 2.1), clear=CLEAR, min_gap=MIN_GAP, fill_min=FILL_MIN)
+            if res.unconnected or res.n_holes_after:
+                # last resort for scaled-down multi-character glyphs (e.g. square kana ligatures): thinner strokes
+                res2 = stencil_glyph(p, strokes, STROKE_W*0.5, W*0.5, prefer_later=not is_cjk(cp), lmax_factor=2.1, clear=CLEAR, min_gap=MIN_GAP, fill_min=FILL_MIN)
+                if not (res2.unconnected or res2.n_holes_after):
+                    res = res2; rec['small'] = True
         rec.update({
             'segs': path_segments(res.path),
             'orig_segs': path_segments(p),
-            'chosen': [{'info': c.info, 'cost': c.cost, 'rect': list(c.rect.exterior.coords), 'a': c.a, 'b': c.b, 'n': c.n, 'L': c.L} for c in res.chosen],
+            'chosen': [{'info': c.info, 'cost': c.cost, 'rect': list((c.rect if c.rect.geom_type == 'Polygon' else c.rect.convex_hull).exterior.coords),
+                        'a': c.a, 'b': c.b, 'n': c.n, 'L': c.L, 'w': getattr(c, 'w', None)} for c in res.chosen],
             'unconnected': res.unconnected, 'holes': res.n_holes_before, 'holes_after': res.n_holes_after,
             'strokes': [s['pts'] for s in res.strokes] if res.strokes else None, 'cands': res.cands,
             'has_strokes': strokes is not None, 'adv': _font.advance(gname), 'trims': res.trims,
@@ -98,10 +123,16 @@ if __name__ == '__main__':
             results[rec['g']] = rec
             if i % 500 == 0:
                 print(f"{i}/{len(names)} {time.time()-t0:.0f}s", flush=True)
-    os.makedirs(os.path.dirname(os.path.abspath(out)) , exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     pickle.dump(results, open(out, 'wb'))
     errs = [r for r in results.values() if 'error' in r]
     unc = [r for r in results.values() if r.get('unconnected') or r.get('holes_after')]
     print(f"done {len(results)} glyphs in {time.time()-t0:.0f}s; errors {len(errs)}; unresolved holes {len(unc)}")
+    if ENGINE == 'corners':
+        cut = [r for r in results.values() if r.get('chosen')]
+        print('revised cuts: %d glyphs; first-release cuts kept: %d (unresolved %d, error %d); half-size %d; rooms filled in %d glyphs' % (
+            sum(1 for r in cut if r.get('engine') == 'corners'), sum(1 for r in cut if r.get('engine') != 'corners'),
+            sum(1 for r in results.values() if r.get('corners_unresolved')), sum(1 for r in results.values() if r.get('corners_error')),
+            sum(1 for r in results.values() if r.get('small')), sum(1 for r in results.values() if r.get('filled'))))
     for r in errs[:5]:
         print(r['g'], r['error'].splitlines()[-1])

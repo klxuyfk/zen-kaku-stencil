@@ -1,11 +1,12 @@
 """Build the stencil TTF from out/results.pkl: replace simple-glyph outlines, keep composites, rename family."""
 import sys, os, pickle, time
 sys.path.insert(0, os.path.dirname(__file__))
+import release_config; release_config.apply()
 sys.stdout.reconfigure(encoding='utf-8')
 from fontTools.ttLib import TTFont
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.pens.cu2quPen import Cu2QuPen
-from stencil.outline import segs_to_path, finalize
+from stencil.outline import segs_to_path, finalize, finalize_record
 import pathops
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else 'base_font/ZenKakuGothicNew-Regular.ttf'
@@ -27,8 +28,7 @@ for g in f.getGlyphOrder():
         continue
     if 'error' in r:
         bad.append((g, 'error')); continue
-    path = segs_to_path(r['segs'])
-    final, rep = finalize(path)
+    final, rep = finalize_record(r)
     reports[g] = rep
     if not rep['ok']:
         bad.append((g, rep))
